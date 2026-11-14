@@ -86,10 +86,25 @@ public final class TeamsClients {
      */
     public static TeamsClient graphAfterLogin(HttpTransport transport, TeamsConfig config,
             TokenSet tokenSet, Consumer<TokenSet> onRefresh) {
+        return graphFromTokenSet(transport, config, tokenSet, config.clientSecret(), onRefresh);
+    }
+
+    /**
+     * Graph client for a user signed in via the <em>device-code</em> flow (a public
+     * client): refresh never sends a {@code client_secret}, even if one is configured
+     * for other uses. Sending it would fail with {@code AADSTS700025}.
+     */
+    public static TeamsClient graphAfterDeviceLogin(HttpTransport transport, TeamsConfig config,
+            TokenSet tokenSet, Consumer<TokenSet> onRefresh) {
+        return graphFromTokenSet(transport, config, tokenSet, null, onRefresh);
+    }
+
+    private static TeamsClient graphFromTokenSet(HttpTransport transport, TeamsConfig config,
+            TokenSet tokenSet, String clientSecret, Consumer<TokenSet> onRefresh) {
         Objects.requireNonNull(config, "config");
         var provider = new RefreshingTokenProvider(
                 transport, config.tokenEndpoint(), config.clientId(),
-                config.clientSecret(), GraphScopes.resolve(config.scope()),
+                clientSecret, GraphScopes.resolve(config.scope()),
                 tokenSet, Clock.systemUTC(), onRefresh);
         return new GraphTeamsClient(transport, provider, config.graphBaseUrl());
     }

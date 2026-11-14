@@ -33,7 +33,8 @@ Package layout under `src/main/java/com/macmario/services/comm/teams/`:
 | `model` | `OutgoingMessage`, `TeamsMessage` (received), `AdaptiveCard`. Immutable. |
 | `client` | `TeamsClient` interface + `GraphTeamsClient`, `WebhookNotifier`, and the `TeamsClients` factory (host entry point). |
 | `notifications` | `ChangeNotificationParser` (parse/validate callbacks), `SubscriptionManager` (create/renew/delete Graph subscriptions), `ChangeNotification` / `Subscription` records. |
-| (root) | `TeamsException` (unchecked, carries HTTP status), `Main` (thin CLI). |
+| `cli` | `TokenStore` + `FileTokenStore` — owner-only on-disk persistence of a `TokenSet` for the CLI's `user-login` / `user-logout`. |
+| (root) | `TeamsException` (unchecked, carries HTTP status), `Main` (thin CLI: `user-login`, `user-logout`, send/fetch/webhook). |
 
 ### The auth model is the thing to understand first
 

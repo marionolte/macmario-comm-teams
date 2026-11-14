@@ -143,8 +143,21 @@ parser.validationToken(request.getQueryString())     // echo back as text/plain 
 
 ## Command-line usage
 
-Configure via environment variables, then run the jar. Graph commands sign in
-interactively with the device-code flow (prints a code to enter in a browser).
+Configure via environment variables, then run the jar.
+
+**Sign in once, then run commands non-interactively:**
+
+```bash
+java -jar target/comm-teams.jar user-login       # device-code sign-in; token is saved
+java -jar target/comm-teams.jar user-logout      # clear the stored token (local sign-out)
+```
+
+`user-login` prints a code to enter at <https://microsoft.com/devicelogin> and, on
+success, saves the token (incl. refresh token) to an **owner-only** file —
+`$TEAMS_TOKEN_STORE`, or `~/.comm-teams/token.json` by default.
+
+**Send / receive** (these use the stored token if present, otherwise trigger a
+one-off device-code sign-in for that command):
 
 ```bash
 java -jar target/comm-teams.jar webhook        "Build finished"
@@ -154,6 +167,9 @@ java -jar target/comm-teams.jar send-user      <userId> "Hello"
 java -jar target/comm-teams.jar fetch-channel  <teamId> <channelId> [top]
 java -jar target/comm-teams.jar fetch-chat     <chatId> [top]
 ```
+
+> `user-logout` removes the local token only; it does not revoke the session in
+> Entra ID.
 
 ---
 
@@ -171,6 +187,7 @@ Via `TeamsConfig.fromEnv()`, `TeamsConfig.fromProperties(path)`, or the builder.
 | `TEAMS_WEBHOOK_URL` | `teams.webhookUrl` | Incoming webhook URL |
 | `TEAMS_TEAM_ID` / `TEAMS_CHANNEL_ID` | `teams.teamId` / `teams.channelId` | Default channel targets |
 | `TEAMS_CLIENT_STATE` | `teams.clientState` | Secret echoed on change notifications |
+| `TEAMS_TOKEN_STORE` | — | CLI token file path (default `~/.comm-teams/token.json`) |
 
 Secrets are read from the environment or a properties file — never hardcode them.
 `TeamsConfig`, `TokenSet`, and `AccessToken` redact secrets in `toString()`.
