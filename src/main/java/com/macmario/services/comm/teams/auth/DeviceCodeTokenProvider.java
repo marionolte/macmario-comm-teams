@@ -61,14 +61,30 @@ public final class DeviceCodeTokenProvider implements AccessTokenProvider {
     @Override
     public String token() {
         synchronized (lock) {
-            if (delegate == null) {
-                var tokenSet = acquireInteractively();
-                delegate = new RefreshingTokenProvider(
-                        transport, config.tokenEndpoint(), config.clientId(),
-                        null, // public client: no secret on refresh
-                        GraphScopes.resolve(config.scope()), tokenSet, clock, null);
-            }
+            ensureSignedIn();
             return delegate.token();
+        }
+    }
+
+    /**
+     * Forces an interactive sign-in if not already done and returns the acquired
+     * {@link TokenSet} (access + refresh), so a caller can persist it for later,
+     * non-interactive use.
+     */
+    public TokenSet login() {
+        synchronized (lock) {
+            ensureSignedIn();
+            return delegate.tokenSet();
+        }
+    }
+
+    private void ensureSignedIn() {
+        if (delegate == null) {
+            var tokenSet = acquireInteractively();
+            delegate = new RefreshingTokenProvider(
+                    transport, config.tokenEndpoint(), config.clientId(),
+                    null, // public client: no secret on refresh
+                    GraphScopes.resolve(config.scope()), tokenSet, clock, null);
         }
     }
 

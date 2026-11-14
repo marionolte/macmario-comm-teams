@@ -1,6 +1,9 @@
 package com.macmario.services.comm.teams;
 
 import com.macmario.services.comm.teams.auth.DeviceCodeTokenProvider;
+import com.macmario.services.comm.teams.auth.TokenSet;
+import com.macmario.services.comm.teams.cli.FileTokenStore;
+import com.macmario.services.comm.teams.cli.TokenStore;
 import com.macmario.services.comm.teams.client.TeamsClient;
 import com.macmario.services.comm.teams.client.TeamsClients;
 import com.macmario.services.comm.teams.config.TeamsConfig;
@@ -19,6 +22,8 @@ import java.util.List;
  * device-code flow, printing a code to enter in a browser.
  *
  * <pre>
+ *   user-login
+ *   user-logout
  *   webhook        &lt;text...&gt;
  *   send-channel   &lt;teamId&gt; &lt;channelId&gt; &lt;text...&gt;
  *   send-chat      &lt;chatId&gt; &lt;text...&gt;
@@ -52,8 +57,11 @@ public final class Main {
 
     private static void run(String[] args) {
         var config = TeamsConfig.fromEnv();
+        var store = FileTokenStore.defaultStore();
         var command = args[0];
         switch (command) {
+            case "user-login" -> userLogin(config, store);
+            case "user-logout" -> userLogout(store);
             case "webhook" -> {
                 var text = joinFrom(args, 1, "webhook <text...>");
                 TeamsClients.webhook(config).send(text);
@@ -61,35 +69,66 @@ public final class Main {
             }
             case "send-channel" -> {
                 requireArgs(args, 4, "send-channel <teamId> <channelId> <text...>");
-                var id = client(config).sendChannelMessage(args[1], args[2], OutgoingMessage.text(joinFrom(args, 3, "")));
+                var id = client(config, store).sendChannelMessage(args[1], args[2], OutgoingMessage.text(joinFrom(args, 3, "")));
                 System.out.println("Sent message id=" + id);
             }
             case "send-chat" -> {
                 requireArgs(args, 3, "send-chat <chatId> <text...>");
-                var id = client(config).sendChatMessage(args[1], OutgoingMessage.text(joinFrom(args, 2, "")));
+                var id = client(config, store).sendChatMessage(args[1], OutgoingMessage.text(joinFrom(args, 2, "")));
                 System.out.println("Sent message id=" + id);
             }
             case "send-user" -> {
                 requireArgs(args, 3, "send-user <userId> <text...>");
-                var id = client(config).sendDirectMessage(args[1], OutgoingMessage.text(joinFrom(args, 2, "")));
+                var id = client(config, store).sendDirectMessage(args[1], OutgoingMessage.text(joinFrom(args, 2, "")));
                 System.out.println("Sent message id=" + id);
             }
             case "fetch-channel" -> {
                 requireArgs(args, 3, "fetch-channel <teamId> <channelId> [top]");
-                print(client(config).fetchChannelMessages(args[1], args[2], optionalTop(args, 3)));
+                print(client(config, store).fetchChannelMessages(args[1], args[2], optionalTop(args, 3)));
             }
             case "fetch-chat" -> {
                 requireArgs(args, 2, "fetch-chat <chatId> [top]");
-                print(client(config).fetchChatMessages(args[1], optionalTop(args, 2)));
+                print(client(config, store).fetchChatMessages(args[1], optionalTop(args, 2)));
             }
             default -> throw new IllegalArgumentException("Unknown command: " + command);
         }
     }
 
-    private static TeamsClient client(TeamsConfig config) {
+    /** Interactive device-code sign-in; persists the token for later commands. */
+    private static void userLogin(TeamsConfig config, TokenStore store) {
         var transport = HttpTransport.createDefault();
-        var tokens = new DeviceCodeTokenProvider(transport, config);
-        return TeamsClients.graphWith(transport, config, tokens);
+        var device = new DeviceCodeTokenProvider(transport, config);
+        TokenSet tokens = device.login();
+        store.save(tokens);
+        try {
+            var me = TeamsClients.graphWith(transport, config, device).fetchCurrentUser();
+            var name = me.displayName() != null ? me.displayName() : me.userPrincipalName();
+            System.out.println("Signed in as " + name + ". Token saved to " + store.location());
+        } catch (TeamsException e) {
+            System.out.println("Signed in; token saved to " + store.location()
+                    + " (could not read profile: " + e.getMessage() + ")");
+        }
+    }
+
+    /** Clears the locally stored token (local sign-out). */
+    private static void userLogout(TokenStore store) {
+        boolean removed = store.clear();
+        System.out.println(removed
+                ? "Signed out; stored token removed."
+                : "No stored token to remove.");
+    }
+
+    /**
+     * Builds a Graph client, preferring the persisted token from {@code user-login};
+     * if none is stored, falls back to an interactive device-code sign-in for this
+     * command only (not persisted).
+     */
+    private static TeamsClient client(TeamsConfig config, TokenStore store) {
+        var transport = HttpTransport.createDefault();
+        return store.load()
+                .map(tokens -> TeamsClients.graphAfterDeviceLogin(transport, config, tokens, store::save))
+                .orElseGet(() -> TeamsClients.graphWith(transport, config,
+                        new DeviceCodeTokenProvider(transport, config)));
     }
 
     private static void print(List<TeamsMessage> messages) {
@@ -134,11 +173,16 @@ public final class Main {
             TEAMS_WEBHOOK_URL, ...). See CLAUDE.md.
 
             Commands:
+              user-login                                  interactive sign-in (device code), token saved
+              user-logout                                 clear the stored token (local sign-out)
               webhook        <text...>
               send-channel   <teamId> <channelId> <text...>
               send-chat      <chatId> <text...>
               send-user      <userId> <text...>
               fetch-channel  <teamId> <channelId> [top]
-              fetch-chat     <chatId> [top]""";
+              fetch-chat     <chatId> [top]
+
+            Graph commands use the token from 'user-login' if present, otherwise
+            prompt for a one-off device-code sign-in.""";
     }
 }

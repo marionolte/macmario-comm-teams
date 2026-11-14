@@ -1,6 +1,7 @@
 package com.macmario.services.comm.teams.auth;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -65,6 +66,7 @@ class RefreshingTokenProviderTest {
         var body = server.lastRequest().body();
         assertTrue(body.contains("grant_type=refresh_token"));
         assertTrue(body.contains("refresh_token=rt-0"));
+        assertFalse(body.contains("client_secret="), "public client must not send a secret");
         assertEquals("rt-1", rotated.get().refreshToken());
     }
 

@@ -73,7 +73,12 @@ public final class RefreshingTokenProvider implements AccessTokenProvider {
                 throw new TeamsException("Access token expired and no refresh token is available; "
                         + "the user must sign in again");
             }
-            current = refresh(now);
+            try {
+                current = refresh(now);
+            } catch (TeamsException e) {
+                throw new TeamsException(
+                        "Sign-in expired or revoked — sign in again (" + e.getMessage() + ")", e);
+            }
             onRefresh.accept(current);
             return current.accessToken();
         }
