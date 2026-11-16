@@ -21,7 +21,7 @@ import java.util.Optional;
  * owner-only file (POSIX {@code rw-------} where supported).
  *
  * <p>Default location: {@code $TEAMS_TOKEN_STORE}, else
- * {@code ~/.comm-teams/token.json}. The file holds a long-lived refresh token —
+ * {@code ~/.config-app/token.teams.json}. The file holds a long-lived refresh token —
  * treat it like a credential.
  */
 public final class FileTokenStore implements TokenStore {
@@ -43,7 +43,7 @@ public final class FileTokenStore implements TokenStore {
         var override = System.getenv("TEAMS_TOKEN_STORE");
         var path = (override != null && !override.isBlank())
                 ? Path.of(override)
-                : Path.of(System.getProperty("user.home", "."), ".comm-teams", "token.json");
+                : Path.of(System.getProperty("user.home", "."), ".config-app", "token.teams.json");
         return new FileTokenStore(path);
     }
 
