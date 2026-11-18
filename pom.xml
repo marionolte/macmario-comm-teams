@@ -9,6 +9,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
         <macmario-core-io.version>1.0</macmario-core-io.version>
+        <macmario-services-db.version>1.0</macmario-services-db.version>
         <jackson.version>2.18.2</jackson.version>
         <junit.version>5.11.4</junit.version>
         <exec.mainClass>com.macmario.services.comm.teams.Main</exec.mainClass>
@@ -19,6 +20,13 @@
             <groupId>com.macmario.core</groupId>
             <artifactId>macmario-core-io</artifactId>
             <version>${macmario-core-io.version}</version>
+        </dependency>
+        <!-- Config database (H2-backed DBConfig): stores the comm.teams properties,
+             transparently encrypting password-typed keys. Pulls in core-io 1.0. -->
+        <dependency>
+            <groupId>com.macmario.services</groupId>
+            <artifactId>macmario-services-db</artifactId>
+            <version>${macmario-services-db.version}</version>
         </dependency>
         <!-- JSON for the Microsoft Graph / webhook payloads. HTTP uses the JDK's
              built-in java.net.http.HttpClient, so no HTTP client dependency is needed. -->

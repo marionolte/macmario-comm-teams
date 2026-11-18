@@ -31,7 +31,9 @@ public record TeamsConfig(
         String defaultTeamId,
         String defaultChannelId,
         String clientState,
-        String redirectUri) {
+        String redirectUri,
+        String username,
+        String password) {
 
     public static final String DEFAULT_GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
     public static final String DEFAULT_AUTHORITY = "https://login.microsoftonline.com";
@@ -64,6 +66,20 @@ public record TeamsConfig(
         return required(redirectUri, "redirectUri");
     }
 
+    /** Validates the fields required for the username/password (ROPC) login. */
+    public TeamsConfig requireResourceOwnerCredentials() {
+        required(tenantId, "tenantId");
+        required(clientId, "clientId");
+        required(username, "username");
+        required(password, "password");
+        // ROPC is not allowed on the multiplexed endpoints.
+        if (tenantId.equalsIgnoreCase("common") || tenantId.equalsIgnoreCase("consumers")) {
+            throw new TeamsException("ROPC requires a specific tenant or 'organizations', not '"
+                    + tenantId + "'");
+        }
+        return this;
+    }
+
     /** Redacts the client secret and webhook URL so configs are safe to log. */
     @Override
     public String toString() {
@@ -74,7 +90,9 @@ public record TeamsConfig(
                 + ", webhookUrl=" + (webhookUrl == null ? "null" : "<redacted>")
                 + ", defaultTeamId=" + defaultTeamId + ", defaultChannelId=" + defaultChannelId
                 + ", clientState=" + (clientState == null ? "null" : "<redacted>")
-                + ", redirectUri=" + redirectUri + "}";
+                + ", redirectUri=" + redirectUri
+                + ", username=" + username
+                + ", password=" + (password == null ? "null" : "<redacted>") + "}";
     }
 
     /** Validates the fields required for the client-credentials OAuth2 flow. */
@@ -121,6 +139,8 @@ public record TeamsConfig(
                 .defaultChannelId(env.apply("TEAMS_CHANNEL_ID"))
                 .clientState(env.apply("TEAMS_CLIENT_STATE"))
                 .redirectUri(env.apply("TEAMS_REDIRECT_URI"))
+                .username(env.apply("TEAMS_USERNAME"))
+                .password(env.apply("TEAMS_PASSWORD"))
                 .build();
     }
 
@@ -139,6 +159,15 @@ public record TeamsConfig(
         return fromProperties(props);
     }
 
+    /**
+     * Builds a config from a {@link ConfigBackend} (e.g. the configdb). Delegates to
+     * {@link #fromProperties(Properties)} so the {@code teams.*} key mapping lives in one
+     * place; password values are already decrypted by the backend.
+     */
+    public static TeamsConfig fromConfigBackend(ConfigBackend backend) {
+        return fromProperties(backend.getAll());
+    }
+
     public static TeamsConfig fromProperties(Properties props) {
         return builder()
                 .graphBaseUrl(props.getProperty("teams.graphBaseUrl"))
@@ -152,6 +181,8 @@ public record TeamsConfig(
                 .defaultChannelId(props.getProperty("teams.channelId"))
                 .clientState(props.getProperty("teams.clientState"))
                 .redirectUri(props.getProperty("teams.redirectUri"))
+                .username(props.getProperty("teams.username"))
+                .password(props.getProperty("teams.password"))
                 .build();
     }
 
@@ -168,6 +199,8 @@ public record TeamsConfig(
         private String defaultChannelId;
         private String clientState;
         private String redirectUri;
+        private String username;
+        private String password;
 
         public Builder graphBaseUrl(String v) { this.graphBaseUrl = v; return this; }
         public Builder authority(String v) { this.authority = v; return this; }
@@ -180,6 +213,8 @@ public record TeamsConfig(
         public Builder defaultChannelId(String v) { this.defaultChannelId = v; return this; }
         public Builder clientState(String v) { this.clientState = v; return this; }
         public Builder redirectUri(String v) { this.redirectUri = v; return this; }
+        public Builder username(String v) { this.username = v; return this; }
+        public Builder password(String v) { this.password = v; return this; }
 
         public TeamsConfig build() {
             return new TeamsConfig(
@@ -193,7 +228,9 @@ public record TeamsConfig(
                     blankToNull(defaultTeamId),
                     blankToNull(defaultChannelId),
                     blankToNull(clientState),
-                    blankToNull(redirectUri));
+                    blankToNull(redirectUri),
+                    blankToNull(username),
+                    blankToNull(password));
         }
 
         private static String orDefault(String value, String fallback) {

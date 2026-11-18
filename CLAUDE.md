@@ -27,14 +27,14 @@ Package layout under `src/main/java/com/macmario/services/comm/teams/`:
 
 | Package | Responsibility |
 |---|---|
-| `config` | `TeamsConfig` — immutable config (record + builder), `fromEnv()` / `fromProperties()`. No secrets in code. |
-| `auth` | `AccessTokenProvider` (the key abstraction) + implementations; `AuthorizationCodeFlow` (user login, PKCE), `RefreshingTokenProvider`, `TokenSet`, `Pkce`. |
+| `config` | `TeamsConfig` — immutable config (record + builder), `fromEnv()` / `fromProperties()` / `fromConfigBackend()`. `ConfigBackend` + `DbConfigBackend` (the configdb). No secrets in code. |
+| `auth` | `AccessTokenProvider` (the key abstraction) + implementations; `PasswordTokenProvider` (ROPC), `AuthorizationCodeFlow` (web-app login, PKCE), `DeviceCodeTokenProvider`, `ClientCredentialTokenProvider`, `RefreshingTokenProvider`, `TokenSet`, `Pkce`, `GraphScopes`. |
 | `http` | `HttpTransport` — thin wrapper over the JDK `java.net.http.HttpClient` + Jackson. **Internal**: no Jackson/HttpClient type appears in the public API. |
 | `model` | `OutgoingMessage`, `TeamsMessage` (received), `AdaptiveCard`. Immutable. |
-| `client` | `TeamsClient` interface + `GraphTeamsClient`, `WebhookNotifier`, and the `TeamsClients` factory (host entry point). |
+| `client` | `TeamsClient` interface + `GraphTeamsClient`, `WebhookNotifier`, `TeamsDirectory` (discover teams/channels/chats, resolve names→IDs), and the `TeamsClients` factory (host entry point). |
 | `notifications` | `ChangeNotificationParser` (parse/validate callbacks), `SubscriptionManager` (create/renew/delete Graph subscriptions), `ChangeNotification` / `Subscription` records. |
-| `cli` | `TokenStore` + `FileTokenStore` — owner-only on-disk persistence of a `TokenSet` for the CLI's `user-login` / `user-logout`. |
-| (root) | `TeamsException` (unchecked, carries HTTP status), `Main` (thin CLI: `user-login`, `user-logout`, send/fetch/webhook). |
+| `cli` | `TokenStore` + `FileTokenStore` (owner-only on-disk `TokenSet` cache); `ConfigPrompter` (interactive `-config`). |
+| (root) | `TeamsException` (unchecked, carries HTTP status), `Main` (thin CLI: `-config`, `user-login`/`user-logout`, send/fetch/webhook, `list-teams`/`list-channels`/`list-chats`). |
 
 ### The auth model is the thing to understand first
 
@@ -128,6 +128,32 @@ parser.validationToken(request.getQueryString())         // echo back as text/pl
       });
 ```
 
+### CLI: configdb + username/password (ROPC)
+
+The CLI stores its settings in the configdb and signs in with username/password:
+
+- `-config` → `ConfigPrompter` writes `teams.*` keys to `DbConfigBackend`
+  (`teams.password` is encrypted by the configdb). `Main` calls `DBConfig.init()` once.
+- Other commands load config via `TeamsConfig.fromConfigBackend` when the `comm.teams`
+  app exists, else `fromEnv()`.
+- Login is `PasswordTokenProvider` (ROPC: `grant_type=password`), delegating ongoing
+  refresh to `RefreshingTokenProvider`. The cached token lives in `FileTokenStore`.
+  **ROPC caveat**: no MFA/Conditional Access/federation/personal accounts; authority
+  must be a tenant GUID or `organizations` (never `common`); all delegated scopes need
+  prior admin consent. (Web-app PKCE + device-code logins are kept for library
+  consumers.)
+- **Name targeting**: `send-channel`/`fetch-channel`/`list-channels` accept a team and
+  channel **name or id** in each position, resolved via `TeamsDirectory` (GUID →
+  team id, `19:` → channel/chat id, both pass through with no HTTP; names resolve by
+  case-insensitive exact match, throwing on none/ambiguous). Secret sent on
+  acquire/refresh **iff** `clientSecret` is configured.
+- **Webhook (CLI)**: the `webhook <text>` command needs only `teams.webhookUrl`
+  (set via `-config` or `TEAMS_WEBHOOK_URL`) — **no `user-login`, no tenant/client,
+  no token**. It builds `WebhookNotifier` via `config.requireWebhookUrl()` (missing →
+  `Missing required configuration value: webhookUrl`), sends the text as an Adaptive
+  Card, and treats any 2xx (incl. Workflows `202`) as success. Send-only, channel-only;
+  everything else goes through the Graph commands (which require login).
+
 ## Build & run
 
 **Builds are run outside this directory** (e.g. in NetBeans on Windows); do not
@@ -148,11 +174,29 @@ no Mockito/AssertJ, no network, no live credentials.
 
 ## Dependencies & gotchas
 
-- **`macmario-core-io` is internal-only** and resolves from the local
-  `~/.m2/repository/com/macmario/core/macmario-core-io/1.0/` (not on Maven
-  Central). It is currently a declared dependency but **not used** by the Teams
-  code (which uses the JDK HTTP client + Jackson); keep or drop it per project
-  needs — ask before removing.
+- **Internal-only deps** resolve from the local `~/.m2` (not Maven Central):
+  `com.macmario.core:macmario-core-io:1.0` and
+  `com.macmario.services:macmario-services-db:1.0` (the configdb; pulls in core-io
+  1.0 and H2). A clean machine without these cannot build.
+- **configdb** (`macmario-services-db` / `com.macmario.services.db.DBConfig`): an
+  H2-backed store under `${user.dir}/.config-app/` (cwd-relative — run all CLI commands
+  from the same dir), namespaced by app (`comm.teams`). `DbConfigBackend` uses the
+  component's own API, the same methods `DbMain` (the `-showconfig` tool) uses — **no
+  JDBC, no encryption in this project** (encryption, if any, is handled outside):
+  - read: `DBConfig.getAllKeyProperty(app, "")` → all `config_key → config_value` for the
+    app (it runs a real SELECT).
+  - create: `DBConfig.addProperty(app, key, value, …)` (INSERT); update:
+    `DBConfig.getInstance(app).setValue(app, key, value)` (UPDATE). `upsert` picks via the
+    `getAllKeyProperty` existence check, then verifies with a read-back.
+  - **Do not use `DBConfig.getProperty`**: its guard treats the freshly-created empty
+    `Properties` as "empty" (`isNullOrEmpty`) and returns before the SELECT, so it
+    **always yields nothing** — that was the cause of the earlier duplicate-key inserts and
+    "no tenantId at login". Likewise `setProperty` (its sibling) is avoided.
+  - `-showconfig` delegates to `DBConfig`'s `DbMain` REPL. `Main extends AppVersion` to
+    reuse component helpers (e.g. `isNotNullOrEmpty`). `Main` calls `DBConfig.init()` once.
+  Written from disassembly, not a running build — adjust this one file if the live DB
+  differs. `Main` calls `DBConfig.init()` once (in `configure()` and `loadConfig()`);
+  the adapter never calls `init()`/`setApp()`/`shutdown()` and always passes the app.
 - **Jackson** (`jackson-databind`) is a direct dependency for JSON. HTTP uses the
   JDK's built-in client, so there is no HTTP-client dependency.
 - **POM packaging** produces two runnables: the thin `target/comm-teams.jar`

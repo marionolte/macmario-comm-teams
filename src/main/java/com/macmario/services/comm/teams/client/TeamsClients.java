@@ -109,6 +109,13 @@ public final class TeamsClients {
         return new GraphTeamsClient(transport, provider, config.graphBaseUrl());
     }
 
+    /** Directory for discovering teams/channels/chats and resolving names to IDs. */
+    public static TeamsDirectory directory(HttpTransport transport, TeamsConfig config,
+            AccessTokenProvider tokenProvider) {
+        Objects.requireNonNull(config, "config");
+        return new TeamsDirectory(transport, tokenProvider, config.graphBaseUrl());
+    }
+
     /** Webhook notifier using the webhook URL from {@code config}. */
     public static WebhookNotifier webhook(TeamsConfig config) {
         return new WebhookNotifier(HttpTransport.createDefault(), config.requireWebhookUrl());
